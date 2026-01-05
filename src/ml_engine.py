@@ -1,63 +1,87 @@
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.preprocessing import StandardScaler
 from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.cluster import KMeans
 
 class ScoutBrain:
     def __init__(self, data_path='data/processed/master_player_db.csv'):
         # Load Data
         self.df = pd.read_csv(data_path)
         
-        # --- PERBAIKAN PENTING ---
-        # Rename kolom 'league_country' menjadi 'league' agar konsisten
+        # Standardize Columns
         if 'league_country' in self.df.columns:
             self.df.rename(columns={'league_country': 'league'}, inplace=True)
             
-        # Tentukan fitur yang ADA di data Real Scraper (Hanya Age & Market Value)
-        # Kita hapus goals_p90 dll karena tidak ada di CSV hasil scraping
+        # Features for similarity (Age & Value)
         self.features = ['age', 'market_value_est']
-        
-        # Bersihkan data NaN (jika ada)
         self.df[self.features] = self.df[self.features].fillna(0)
         
-        # Siapkan Scaler
         self.scaler = StandardScaler()
         
     def get_similar_players(self, player_name, top_n=5):
-        """Mencari pemain mirip berdasarkan Umur dan Harga Pasar"""
+        """Mencari pemain yang mirip secara profil (Umur & Harga)"""
         if player_name not in self.df['player_name'].values:
             return None
             
-        # Ambil posisi pemain target (karena kita hanya ingin membandingkan sesama posisi)
         target_pos = self.df[self.df['player_name'] == player_name]['position'].values[0]
-        
-        # Filter: Hanya bandingkan dengan pemain di POSISI YANG SAMA
         df_pos = self.df[self.df['position'] == target_pos].reset_index(drop=True)
         
-        # Siapkan Data Matrix
         X = df_pos[self.features]
         X_scaled = self.scaler.fit_transform(X)
         
-        # Cari index pemain target
         target_idx = df_pos[df_pos['player_name'] == player_name].index[0]
         target_vector = X_scaled[target_idx].reshape(1, -1)
         
-        # Hitung Similarity
         similarity_scores = cosine_similarity(target_vector, X_scaled)[0]
-        
-        # Ambil Top N
         similar_indices = similarity_scores.argsort()[::-1][1:top_n+1]
         
         result = df_pos.iloc[similar_indices].copy()
-        # Ubah skor 0-1 menjadi persentase 0-100%
         result['similarity_score'] = (similarity_scores[similar_indices] * 100).round(1)
         
         return result[['player_name', 'team', 'league', 'age', 'market_value_raw', 'similarity_score']]
 
-    def cluster_players(self, n_clusters=3):
-        X = self.df[self.features]
-        X_scaled = self.scaler.fit_transform(X)
-        kmeans = KMeans(n_clusters=n_clusters, random_state=42)
-        self.df['cluster_group'] = kmeans.fit_predict(X_scaled)
-        return self.df
+    def recommend_for_team_needs(self, team_name, target_position, top_n=5):
+        """
+        Mencari pemain untuk posisi tertentu yang sesuai dengan budget klub.
+        """
+        # 1. Hitung 'Buying Power' Klub (Rata-rata market value Top 15 pemain)
+        team_players = self.df[self.df['team'] == team_name]
+        
+        if team_players.empty:
+            return None
+            
+        # Ambil rata-rata value pemain inti (untuk estimasi gaji/budget transfer)
+        avg_squad_value = team_players['market_value_est'].nlargest(15).mean()
+        
+        # Jika data tim terlalu sedikit/nol, set default budget rendah
+        if pd.isna(avg_squad_value) or avg_squad_value == 0:
+            avg_squad_value = 1000000000 # 1 Milyar default
+            
+        # 2. Filter Kandidat
+        # - Harus posisi yang diminta
+        # - Bukan pemain dari tim itu sendiri
+        candidates = self.df[
+            (self.df['position'] == target_position) & 
+            (self.df['team'] != team_name)
+        ].copy()
+        
+        if candidates.empty:
+            return pd.DataFrame()
+
+        # 3. Budget Filtering Logic
+        # Cari pemain yang valuasinya 30% s/d 200% dari rata-rata skuad
+        # (Agar tidak terlalu jelek, tapi juga tidak mustahil dibeli)
+        min_budget = avg_squad_value * 0.3
+        max_budget = avg_squad_value * 2.5 
+        
+        filtered_candidates = candidates[
+            (candidates['market_value_est'] >= min_budget) & 
+            (candidates['market_value_est'] <= max_budget)
+        ].copy()
+        
+        # 4. Scoring Algorithm: "Young & Valuable"
+        # Score = Market Value dibagi Umur. Kita mau pemain value tinggi tapi masih muda.
+        # Tambahkan sedikit random factor agar variatif
+        filtered_candidates['scout_score'] = (filtered_candidates['market_value_est'] / filtered_candidates['age'])
+        
+        return filtered_candidates.nlargest(top_n, 'scout_score')[['player_name', 'team', 'league', 'age', 'market_value_raw', 'market_value_est']]
