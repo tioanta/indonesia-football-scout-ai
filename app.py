@@ -4,7 +4,7 @@ import plotly.express as px
 from src.ml_engine import ScoutBrain
 
 st.set_page_config(page_title="Garuda Scout AI", layout="wide")
-st.title("🇮🇩 Garuda Scout AI v3.0: Squad Planner Edition")
+st.title("🇮🇩 Garuda Scout AI v4.0: Complete Suite")
 
 # Load Data
 try:
@@ -14,47 +14,29 @@ except Exception as e:
     st.error(f"Error loading data: {e}")
     st.stop()
 
-# --- SIDEBAR: HIERARCHICAL FILTER ---
-st.sidebar.header("🛠️ Filter Bertingkat")
+# --- TAB SETUP ---
+tab1, tab2, tab3 = st.tabs(["📊 Market Explorer", "🤖 Squad Planner (Team)", "🔄 Replacement Finder (Player)"])
 
-# Level 1: Negara
-all_leagues = sorted(df['league'].unique())
-selected_leagues = st.sidebar.multiselect("1. Pilih Negara/Liga", options=all_leagues, default=all_leagues)
-
-# Filter DF sementara berdasarkan Liga
-temp_df = df[df['league'].isin(selected_leagues)]
-
-# Level 2: Klub (Opsional - Jika kosong berarti semua klub di negara itu)
-available_teams = sorted(temp_df['team'].unique())
-selected_teams = st.sidebar.multiselect("2. Pilih Klub (Opsional)", options=available_teams)
-
-# Filter DF sementara berdasarkan Tim
-if selected_teams:
-    temp_df = temp_df[temp_df['team'].isin(selected_teams)]
-
-# Level 3: Posisi
-available_positions = sorted(temp_df['position'].unique())
-selected_positions = st.sidebar.multiselect("3. Pilih Posisi", options=available_positions, default=available_positions)
-
-# --- FINAL FILTERED DATAFRAME ---
-filtered_df = temp_df[temp_df['position'].isin(selected_positions)]
-
-# --- MAIN TABS ---
-tab1, tab2, tab3 = st.tabs(["📊 Market Explorer", "🤖 Squad Planner (AI)", "📝 Database"])
-
-# TAB 1: Market Explorer (Grafik Posisi)
+# ==========================================
+# TAB 1: MARKET EXPLORER (General Analysis)
+# ==========================================
 with tab1:
-    st.subheader(f"Analisis Pasar ({len(filtered_df)} Pemain Terpantau)")
+    st.sidebar.header("🛠️ Filter Market Explorer")
     
-    # Check data availability
-    if not filtered_df.empty:
+    # Filter Sederhana untuk Grafik
+    all_leagues = sorted(df['league'].unique())
+    selected_leagues_tab1 = st.sidebar.multiselect("Pilih Negara", options=all_leagues, default=all_leagues, key="t1_league")
+    
+    filtered_df_tab1 = df[df['league'].isin(selected_leagues_tab1)]
+    
+    st.subheader(f"Analisis Pasar ({len(filtered_df_tab1)} Pemain)")
+    
+    if not filtered_df_tab1.empty:
         col1, col2 = st.columns([3, 1])
-        
         with col1:
-            # REQUEST: Sumbu X adalah Posisi
             fig = px.scatter(
-                filtered_df, 
-                x="position",  # <--- SUMBU X DIUBAH KE POSISI
+                filtered_df_tab1, 
+                x="position", 
                 y="market_value_est", 
                 color="league", 
                 size="market_value_est",
@@ -63,56 +45,97 @@ with tab1:
                 labels={"market_value_est": "Valuasi (Est)", "position": "Posisi Pemain"},
                 height=550
             )
-            # Update layout agar label sumbu X miring jika terlalu padat
-            fig.update_layout(xaxis_tickangle=-45)
             st.plotly_chart(fig, use_container_width=True)
-            
         with col2:
-            st.info("💡 **Cara Baca Grafik**")
-            st.write("Setiap titik adalah satu pemain.")
-            st.write("• **Atas:** Pemain Mahal (Bintang).")
-            st.write("• **Bawah:** Pemain Murah/Muda.")
-            st.write("• **Warna:** Menunjukkan asal Liga.")
-            st.markdown("---")
-            st.metric("Total Value (Filter)", f"Rp {filtered_df['market_value_est'].sum() / 1e9:.1f} M")
-    else:
-        st.warning("Data kosong dengan filter saat ini.")
+            st.info("Fitur Market Explorer")
+            st.write("Gunakan tab ini untuk melihat tren harga pasar secara umum di berbagai liga.")
 
-# TAB 2: Squad Planner (Rekomendasi per Posisi)
+# ==========================================
+# TAB 2: SQUAD PLANNER (Team Needs)
+# ==========================================
 with tab2:
     st.header("🤖 AI Squad Planner")
-    st.write("Pilih klub dan posisi yang ingin diperkuat. AI akan mencari pemain yang **sesuai budget klub tersebut**.")
+    st.write("Cari pemain baru berdasarkan **Kebutuhan & Budget Tim**.")
     
-    col_input1, col_input2 = st.columns(2)
-    
-    with col_input1:
-        # Pilih Klub Target (Untuk perencanaan)
-        # Kita ambil list klub full dari database original agar user bisa pilih bebas
-        target_team = st.selectbox("A. Klub Mana yang ingin belanja?", options=sorted(df['team'].unique()))
-    
-    with col_input2:
-        # Pilih Posisi Target
-        # Ambil daftar posisi unik dari database
-        target_pos = st.selectbox("B. Butuh pemain posisi apa?", options=sorted(df['position'].unique()))
-    
-    if st.button("🔍 Cari Rekomendasi Pemain"):
-        with st.spinner(f"AI sedang menganalisis kekuatan finansial {target_team}..."):
-            recommendations = brain.recommend_for_team_needs(target_team, target_pos)
+    c1, c2 = st.columns(2)
+    with c1:
+        target_team_planner = st.selectbox("Pilih Tim Anda", options=sorted(df['team'].unique()), key="t2_team")
+    with c2:
+        target_pos_planner = st.selectbox("Posisi yang dibutuhkan", options=sorted(df['position'].unique()), key="t2_pos")
         
-        if recommendations is not None and not recommendations.empty:
-            st.success(f"Ditemukan {len(recommendations)} kandidat {target_pos} yang cocok untuk budget {target_team}:")
+    if st.button("🔍 Cari Pemain Sesuai Budget", key="btn_planner"):
+        with st.spinner("Menghitung budget & mencari kandidat..."):
+            recs_planner = brain.recommend_for_team_needs(target_team_planner, target_pos_planner)
             
-            # Tampilkan Hasil
-            st.table(recommendations[['player_name', 'age', 'team', 'league', 'market_value_raw']])
-            
-            # Visualisasi Perbandingan Harga
-            st.caption("Perbandingan Harga Kandidat vs Estimasi Budget Klub")
-            st.bar_chart(recommendations.set_index('player_name')['market_value_est'])
-            
+        if recs_planner is not None and not recs_planner.empty:
+            st.success(f"Kandidat {target_pos_planner} yang pas untuk dompet {target_team_planner}:")
+            st.table(recs_planner)
         else:
-            st.error("Tidak ditemukan pemain yang cocok.")
-            st.write("Kemungkinan: Data klub target belum lengkap untuk menghitung budget, atau tidak ada pemain di range harga tersebut.")
+            st.warning("Tidak ditemukan pemain yang cocok.")
 
-# TAB 3: Raw Data
+# ==========================================
+# TAB 3: REPLACEMENT FINDER (Similarity)
+# ==========================================
 with tab3:
-    st.dataframe(filtered_df)
+    st.header("🔄 Replacement Finder")
+    st.write("Cari pengganti yang **identik (mirip)** dengan pemain tertentu. Cocok jika pemain kunci Anda cedera atau pindah.")
+    
+    st.markdown("### 🎯 Siapa pemain yang ingin diganti?")
+    
+    # --- FILTER BERTINGKAT (CASCADING FILTERS) ---
+    col_f1, col_f2, col_f3, col_f4 = st.columns(4)
+    
+    # 1. Pilih Negara
+    with col_f1:
+        leagues_list = sorted(df['league'].unique())
+        sel_league = st.selectbox("1. Negara/Liga", options=leagues_list, key="t3_league")
+    
+    # 2. Pilih Klub (Filter berdasarkan Negara diatas)
+    with col_f2:
+        teams_in_league = sorted(df[df['league'] == sel_league]['team'].unique())
+        sel_team = st.selectbox("2. Klub Asal", options=teams_in_league, key="t3_team")
+        
+    # 3. Pilih Posisi (Filter berdasarkan Klub diatas)
+    with col_f3:
+        pos_in_team = sorted(df[(df['league'] == sel_league) & (df['team'] == sel_team)]['position'].unique())
+        sel_pos = st.selectbox("3. Posisi", options=pos_in_team, key="t3_pos")
+        
+    # 4. Pilih Nama Pemain (Filter berdasarkan Posisi diatas)
+    with col_f4:
+        players_final = sorted(df[
+            (df['league'] == sel_league) & 
+            (df['team'] == sel_team) & 
+            (df['position'] == sel_pos)
+        ]['player_name'].unique())
+        
+        sel_player = st.selectbox("4. Nama Pemain", options=players_final, key="t3_player")
+        
+    st.markdown("---")
+    
+    # Tombol Eksekusi
+    if st.button(f"🔍 Cari Pengganti {sel_player}", key="btn_replace"):
+        with st.spinner(f"Mencari kembaran statistik {sel_player}..."):
+            # Panggil fungsi similarity dari brain
+            similar_players = brain.get_similar_players(sel_player, top_n=10)
+            
+        if similar_players is not None:
+            st.success(f"Rekomendasi Pengganti untuk {sel_player} ({sel_team}):")
+            
+            # Tampilkan Data
+            st.dataframe(
+                similar_players, 
+                column_config={
+                    "similarity_score": st.column_config.ProgressColumn(
+                        "Tingkat Kemiripan",
+                        help="Semakin mendekati 100%, semakin mirip profil umur & harganya",
+                        format="%.1f%%",
+                        min_value=0,
+                        max_value=100,
+                    ),
+                },
+                hide_index=True
+            )
+            
+            st.caption("*Similarity Score dihitung berdasarkan kedekatan Umur dan Market Value.")
+        else:
+            st.error("Data pemain tidak ditemukan.")
