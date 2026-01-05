@@ -1,0 +1,34 @@
+name: Daily Scouting Agent
+
+on:
+  schedule:
+    # Jalan setiap Senin jam 00:00 UTC (07:00 WIB)
+    - cron: '0 0 * * 1'
+  workflow_dispatch: # Bisa di-run manual tombolnya
+
+jobs:
+  scout-job:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install Dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Scouting Script
+        run: python src/scraper.py
+
+      - name: Commit & Push Data
+        run: |
+          git config --global user.name 'ScoutBot-AI'
+          git config --global user.email 'bot@noreply.github.com'
+          git add data/
+          git commit -m "Auto-update: Scouting data for $(date +'%Y-%m-%d')"
+          git push
