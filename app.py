@@ -25,14 +25,21 @@ league_filter = st.sidebar.multiselect("Pilih Liga", options=df['league'].unique
 pos_filter = st.sidebar.multiselect("Posisi", options=df['position'].unique(), default=df['position'].unique())
 age_range = st.sidebar.slider("Rentang Umur", 15, 40, (17, 30))
 
-# Filter Dataframe
+# Tambahkan ini di app.py bagian sidebar
+country_filter = st.sidebar.multiselect(
+    "Pilih Negara Liga", 
+    options=df['country'].unique(), 
+    default=df['country'].unique()
+)
+
+# Dan update logika filtering dataframe-nya:
 filtered_df = df[
     (df['league'].isin(league_filter)) &
+    (df['country'].isin(country_filter)) &  # <--- Filter baru
     (df['position'].isin(pos_filter)) &
     (df['age'] >= age_range[0]) &
     (df['age'] <= age_range[1])
 ]
-
 # Tab Layout
 tab1, tab2, tab3 = st.tabs(["🔍 Player Explorer", "🤖 AI Recommender", "📈 Compare Tool"])
 
